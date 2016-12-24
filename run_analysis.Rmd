@@ -1,0 +1,194 @@
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, comment = NA)
+```
+
+#Qualitative Assessment of Weight Lifting Exercises
+#####Shivang Agarwal
+#####24 Dec 2016
+
+## Synopsis
+One thing that people regularly do is quantify *how much* of a particular activity they do, but they rarely quantify *how well* they do it. In this experiment, participants were asked to perform barbell lifts correctly and incorrectly in 5 different ways. We will use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants and calculate features on the Euler angles (roll, pitch and yaw), as well as the raw accelerometer, gyroscope and magnetometer readings to predict the manner in which they did the exercise.   Our goal will be to try different machine learning algorithms and analyse which is the best for our problem.
+
+
+```{r echo=FALSE, warning=F}
+setwd("~/Downloads/DataScience/Course-8/Assignment")
+library(plyr)
+library(caret)
+library(klaR)
+library(nnet)
+library(randomForest)
+library(e1071)
+library(party)
+library(rpart)
+library(kernlab)
+library(mlbench)
+library(resample)
+library(doMC)
+registerDoMC(3)
+```
+
+## Data Processing
+Lets download the training and testing data and move them in *training* and *testing* data frames respectively with all types of NAs identified. I thank  http://groupware.les.inf.puc-rio.br/har for providing the data.
+
+```{r cache=T}
+urltraining <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+urltesting <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(urltraining, "./pml-training.csv")
+download.file(urltesting, "./pml-testing.csv")
+training <- read.csv("pml-training.csv", header = TRUE, sep = ",", na.strings=c("NA","#DIV/0!",""))
+testing <- read.csv("pml-testing.csv", header = TRUE, sep = ",", na.strings=c("NA","#DIV/0!",""))
+```
+
+
+## Model
+Removing rows *X*, *user_name*, *raw_timestamp_part_1*, *raw_timestamp_part_2*, *cvtd_timestamp*, *new_window* and *num_window* as they are not mearsured predictors. They are used for marking purposes only.
+```{r}
+training <- training[, -c(1:7)]
+testing <- testing[, -c(1:7)]
+```
+
+For feature selection, I am removing features which have more than 95% of the entries as *NA*.
+```{r}
+isnaMatrix <- is.na(training)
+NumberOfNAsPerFeature <- colSums(isnaMatrix)
+NAFeatures <- which(NumberOfNAsPerFeature > 0.95*dim(training)[[1]])
+training <- training[, -NAFeatures]
+testing <- testing[, -NAFeatures]
+dim(training)
+```
+The columns as we can see are now reduced to `r dim(training)[[2]]`. Base on these features we will train our models.
+
+
+##Cross Validation
+For training control I am using **cross-validation method** with *10-fold cross validation* for each model. I have set the seed equally for each so that we get the same data partition. This way we will be able to comapre apples with apples. All the predictors are also normalized. Each model is automatically tuned, if not mentioned otherwise.
+```{r}
+set.seed(242)
+control <- trainControl(method="cv", number=10)
+```
+
+## Training through different models
+Let's start with some *small guns* and then move our way forward from there.
+
+####Rpart
+```{r cache = TRUE}
+set.seed(242)
+modelRpart <- train(classe~., data=training, method="rpart", trControl=control, preProcess = c("center","scale"))
+```
+
+####Linear Discriminant Analysis
+```{r cache = TRUE}
+set.seed(242)
+modelLda <- train(classe~., data=training, method="lda", trControl = control, preProcess = c("center","scale"))
+```
+
+####Conditional tree
+```{r cache = TRUE}
+set.seed(242)
+modelCtree <- train(classe~., data=training, method="ctree", trControl = control, preProcess = c("center","scale"))
+```
+
+Now, lets move on to some *automatic machine guns*.
+
+####NeuralNets
+Here I have used one hidden layer with size of 10. Therefore, input layer has size of 52, then hidden layer with size of 10 and then output layer with size of 5.
+```{r cache = TRUE}
+set.seed(242)
+my.grid <- expand.grid(.decay = c(0.5, 0.1), .size = c(10))
+modelNn <-  train(classe~., data = training, method = "nnet", maxit = 100, tuneGrid=my.grid, trace = F, trControl = control, preProcess = c("center","scale"))
+```
+
+####Naive Bayes
+```{r cache = TRUE}
+set.seed(242)
+modelNb <- train(classe~., data = training, method ="nb", trControl = control, preProcess = c("center","scale"))
+```
+
+Now some *TNTs and dynamites* of the machine learning world.
+
+####Support Vector Machine
+```{r cache = TRUE}
+set.seed(242)
+modelSvm  <- train(classe~., data = training, method = "svmRadial", trControl = control, preProcess = c("center","scale"))
+```
+
+####Learning Vector Quantization
+```{r cache = TRUE}
+set.seed(242)
+modelLvq <- train(classe~., data=training, method="lvq", trControl=control, preProcess = c("center","scale"))
+```
+
+####Gradient Boosted Machine
+```{r cache = TRUE}
+set.seed(242)
+modelGbm <- train(classe~., data=training, method="gbm", trControl=control, verbose=FALSE, preProcess = c("center","scale"))
+```
+
+Last but not the least, the *hydrogen bomb*.
+
+####RandomForest
+```{r cache = TRUE}
+set.seed(242)
+modelRf <- train(classe~., data=training, method="rf", trControl = control, preProcess = c("center","scale"))
+```
+
+##Comparison
+It will be unfair to compare small guns with hydrogen bombs, therefore I am comparing small guns within small guns, automatic machine guns within automatic machine guns and so on.
+
+####Small Guns
+Comparing *Rpart, Linear Discriminant Analysis(LDA) and Conditional trees.*
+````{r cache = TRUE}
+results <- resamples(list(Rpart=modelRpart, LDA=modelLda, Ctree=modelCtree))
+# summarize the distributions
+summary(results)
+# dot plots of results
+dotplot(results)
+```
+
+Conditional Trees give the best output with maximum accuracy of **90.52%** and mean accuracy of **89.98%**.
+
+####Automatic Machine Guns
+Comparing *Neural net and Naive Bayes.*
+````{r cache = TRUE}
+results <- resamples(list(NeuralNet=modelNn, NaiveBayes=modelNb))
+# summarize the distributions
+summary(results)
+# dot plots of results
+dotplot(results)
+```
+
+Neural Net gives the best output with maximum accuracy of **86.54%** and mean accuracy of **84.61%**. Neural net might give more accurate results with more number of hidden layers and bigger size of each hidden layer.
+
+####TNTs and Dynamites
+Comparing *Learning Vector Quantization(LVQ), Gradient Boosted Machine(GBM) and Support Vector Machine(SVM).*
+````{r cache = TRUE}
+results <- resamples(list(LVQ=modelLvq, GBM=modelGbm, SVM=modelSvm))
+# summarize the distributions
+summary(results)
+# dot plots of results
+dotplot(results)
+```
+
+Gradient Boosted Machine gives the best output with maximum accuracy of **96.74%** and mean accuracy of **96.28%**. SVMs come in close with **94.55%**.
+
+####Hydrogen Bomb
+Random forests gives some of the best prediction accuracies. I will just print the summary of the RF model.
+````{r cache = TRUE}
+modelRf
+```
+
+Random Forests give a whopping accuracy of ***99.40%***.  
+Let's also see the confusionMatrix for random forest since its giving wonderful result.
+```{r cache = TRUE}
+predictRf <- predict(modelRf, newdata=training)
+confusionMatrix(predictRf, training$classe)
+```
+
+***Awesome!***
+
+##Results
+In all 9 models were compared. They were divided into groups based on there complexity. Comparison based on accuracy and dotplots was done within each group. We found out that the best machine learning models for our problem are Random Forest, Gradient Boosted Machines and Support Vector Machines respectively.  
+Therefore, we conclude that the quality of a participant's barbell lifts can be predicted with very good accuracy with RF. The participant with sufficient confidence can rely on our model to get the feedback, if he/she is doing barbell lifts correctly or not.
+
+
+#Thank You!   
+
